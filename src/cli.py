@@ -3,8 +3,13 @@ import argparse
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Your app description here.")
+    parser = argparse.ArgumentParser(
+        description="Control Toggl Track timers from the command line"
+    )
     parser.add_argument("-e", "--example", help="Example argument", required=False)
+    parser.add_argument(
+        "timer",
+    )
     args = parser.parse_args()
     if args.example:
         # core.do_something(args.example)

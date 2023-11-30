@@ -3,12 +3,11 @@ import os
 from requests.auth import HTTPBasicAuth
 from pprint import pprint
 
-api_token = os.environ.get("TOGGL")
 toggl_url = "https://api.track.toggl.com/api/v9/me"
 
 
 # curl -u <token>:api_token
-def get_user_info(api_token):
+def get_user_info(api_token: str):
     """
     returns details for the user with the given api_token as JSON.
     """
@@ -19,9 +18,9 @@ def get_user_info(api_token):
         raise Unauthorized
 
 
-def get_user_projects(api_token):
+def get_user_projects(api_token: str):
     """
-    returns details for the user with the given api_token as JSON.
+    returns the projects of the user with the given api_token as JSON.
     """
     response = requests.get(
         toggl_url + "/projects",
