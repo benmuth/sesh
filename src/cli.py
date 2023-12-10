@@ -23,12 +23,10 @@ def stop(args: list[str]):
     time_entry_id = running_timer["id"]
     workspace_id = running_timer["workspace_id"]
     timer_name = running_timer["tags"][0]
-    # print(running_timer)
     print(time_entry_id, workspace_id, timer_name)
     response = api.stop_timer(time_entry_id=time_entry_id, workspace_id=workspace_id)
     print("stop response: %s" % response)
     print("stopped %s" % timer_name)
-    # print("STOP")
 
 
 def start(args: argparse.Namespace):
@@ -65,6 +63,15 @@ def start(args: argparse.Namespace):
 
 def sync(args: list[str]):
     data_layer.sync_projects_with_toggl()
+    data_layer.sync_tags_with_toggl()
+
+
+def show_running_timer(args: argparse.Namespace):
+    response = api.get_running_timer()
+    if response:
+        print(response["tags"][0])
+    else:
+        print("No timer running")
 
 
 def main():
@@ -83,15 +90,25 @@ def main():
     parser = argparse.ArgumentParser(
         description="Control Toggl Track timers from the command line"
     )
-    # parser.add_argument("-e", "--example", help="Example argument", required=False)
+    parser.add_argument(
+        "-r",
+        "--running",
+        help="display the currently running timer",
+        action="store_true",
+        required=False,
+    )
+
+    parser.add_argument(
+        "-l",
+        "--list",
+        help="display all projects",
+        action="store_true",
+        required=False,
+    )
+
     subparsers = parser.add_subparsers(
         title="subcommands", help="sub-command help", dest="subcommands"
     )
-
-    # TIMER
-    parser_timer = subparsers.add_parser("timer", help="Start a timer")
-    parser_timer.add_argument("project", help="The project name", choices=projects)
-    parser_timer.set_defaults(func=timer, projects=projects)
 
     # STOP
     parser_stop = subparsers.add_parser("stop", help="Stops the current timer")
@@ -109,35 +126,16 @@ def main():
     parser_sync = subparsers.add_parser("sync", help="Syncs user data with Toggl")
     parser_sync.set_defaults(func=sync)
 
-    # stop_parser.add_argument(
-    #     "stop", help="Stop the currently running timer, if any", nargs=1
-    # )
-    # stop_parser.set_defaults(func=)
-
     args = parser.parse_args()
-    # print("args: ", args)
-    # Check if a subcommand was provided
-    if args.subcommands is None:
+    if args.running:
+        show_running_timer(args)
+    elif args.list:
+        for project in projects:
+            print(project)
+    elif args.subcommands is None:
         parser.print_help()
     else:
         args.func(args)
-
-    # if args.example:
-    #     # core.do_something(args.example)
-    #     print("this is an example")
-    #     pass
-    # else:
-    #     args.func(args)
-    # elif args.timer:
-    #     # print("timer")
-    #     if args.timer[1] in projects:
-    #         print(args.timer[1])
-    #     else:
-    #         print(f"timer {args.timer[1]} not found in list of projects")
-    # elif args.stop:
-    #     print("stopping!")
-    # else:
-    #     parser.print_help()
 
 
 if __name__ == "__main__":
