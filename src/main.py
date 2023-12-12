@@ -28,7 +28,6 @@ if not api_token:
     raise Exception("No toggle API token found")
 
 
-# curl -u <token>:api_token
 def get_user_info(api_token: str = api_token):
     """
     returns details for the user with the given api_token as JSON.
@@ -46,26 +45,6 @@ def get_user_projects(api_token: str = api_token):
     """
     response = requests.get(
         toggl_url + "/projects",
-        headers={"content-type": "application/json"},
-        auth=HTTPBasicAuth(api_token, "api_token"),
-    )
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise Unauthorized
-
-
-def get_user_tags(api_token: str = api_token):
-    """
-    Gets project names and ids
-    the format is a list of dicts like this
-            {'at': '2022-08-26T20:33:32.262363Z',
-              'id': 10950283,
-              'name': 'Tour of Go',
-              'workspace_id': 5992965}
-    """
-    response = requests.get(
-        f"https://api.track.toggl.com/api/v9/workspaces/{workspace_id}/tags",
         headers={"content-type": "application/json"},
         auth=HTTPBasicAuth(api_token, "api_token"),
     )
@@ -103,7 +82,7 @@ def stop_timer(time_entry_id: str, workspace_id: str):
         raise Unauthorized
 
 
-def start_timer(project_name: str, project_id: int, start_time: str, tag_id: int):
+def start_timer(project_name: str, project_id: int, start_time: str):
     print("start_time:", start_time)
     if not project_id or not start_time or not workspace_id:
         raise NoData
@@ -112,9 +91,6 @@ def start_timer(project_name: str, project_id: int, start_time: str, tag_id: int
         "duration": -1,
         "project_id": project_id,
         "start": start_time,
-        "tag_action": "add",
-        "tag_ids": [tag_id],
-        "tags": [project_name],
         "workspace_id": workspace_id,
     }
     response = requests.post(
@@ -138,6 +114,30 @@ def start_timer(project_name: str, project_id: int, start_time: str, tag_id: int
 
 class Unauthorized(Exception):
     pass
+
+
+# ------------------------------------
+# HELPERS
+# ------------------------------------
+
+
+def print_elapsed_duration(start_time: str):
+    time_format = "%Y-%m-%dT%H:%M:%S%z"
+
+    try:
+        given_datetime = datetime.strptime(start_time, time_format)
+    except ValueError as e:
+        print(f"Error parsing time: {e}")
+        return
+
+    current_time = datetime.now().astimezone(given_datetime.tzinfo)
+    elapsed_duration = current_time - given_datetime
+
+    seconds = elapsed_duration.seconds
+    hours = seconds // 3600
+    minutes = (seconds // 60) % 60
+    seconds = seconds % 60
+    print(f"{hours:02}:{minutes:02}:{seconds:02}")
 
 
 # ------------------------------------
@@ -168,28 +168,6 @@ def sync_projects_with_toggl():
         f.write(json.dumps(projects))
 
 
-def sync_tags_with_toggl():
-    """
-    Writes a list of the user's tags to 'data/tags.json'.
-    """
-    tag_list = get_user_tags()
-    tag_properties = ["name", "id"]
-    tags = [{k: d[k] for k in tag_properties} for d in tag_list]
-    print("TAG DATA RECEIVED FROM TOGGL")
-    print(json.dumps(tags, indent=2))
-
-    with open("data/tags.json", "wt") as f:
-        f.write(json.dumps(tags))
-
-
-class UserData:
-    def __init__(
-        self
-    ):  # TODO: handle case where tags and projects files are empty (sync with toggl)
-        self.tags = read_data("tags.json")
-        self.projects = read_data("projects.json")
-
-
 # TODO: separate stored data by user
 def read_data(
     data_file: str, data_dir: str = "/home/ben/code/python/sesh/data/"
@@ -207,12 +185,6 @@ def read_data(
 
 data_dir = "/home/ben/code/python/sesh/data/"
 
-# for datum in read_data(data_dir=data_dir):
-# print(datum["name"])
-
-# sync_projects_with_toggl(api_token=api_token)
-
-
 # ------------------------------------
 # CLI
 # ------------------------------------
@@ -227,58 +199,58 @@ def timer(args: argparse.Namespace):
         )
 
 
-def stop(args: list[str]):
+def stop(args: argparse.Namespace):
     running_timer = get_running_timer()
     time_entry_id = running_timer["id"]
     workspace_id = running_timer["workspace_id"]
-    timer_name = running_timer["tags"][0]
-    print(time_entry_id, workspace_id, timer_name)
+    project_id = running_timer["project_id"]
     response = stop_timer(time_entry_id=time_entry_id, workspace_id=workspace_id)
-    print("stop response: %s" % response)
-    print("stopped %s" % timer_name)
+    start = response["start"]
+    for project in args.stored_projects:
+        if project["id"] == project_id:
+            print("stopping", project["name"])
+            print_elapsed_duration(start)
+            return
 
 
 def start(args: argparse.Namespace):
-    if args.project in args.projects and args.project in args.tags:
+    if args.project in args.project_names:
         project_id = None
-        print(args.project)
-        for project in args.user_data.projects:
+        print("starting", args.project)
+        for project in args.stored_projects:
             if project["name"] == args.project:
                 project_id = project["id"]
-
-        tag_id = None
-        for tag in args.user_data.tags:
-            if tag["name"] == args.project:
-                tag_id = tag["id"]
+                break
 
         now: str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         if project_id is None:
-            raise NoData
-        if tag_id is None:
             raise NoData
         print("start", args.project)
         start_timer(
             project_name=args.project,
             project_id=project_id,
             start_time=now,
-            tag_id=tag_id,
         )
     else:
         print(f"timer {args.project} not found in list of projects")
         print("projects:", args.projects)
-        print("tags:", args.tags)
         return
 
 
-def sync(args: list[str]):
+def sync(args: argparse.Namespace):
     sync_projects_with_toggl()
-    sync_tags_with_toggl()
 
 
 def show_running_timer(args: argparse.Namespace):
     response = get_running_timer()
     if response:
-        print(response["tags"][0])
+        project_id = response["project_id"]
+        start = response["start"]
+        for project in args.stored_projects:
+            if project["id"] == project_id:
+                print(project["name"])
+                print_elapsed_duration(start)
+                return
     else:
         print("No timer running")
 
@@ -287,18 +259,12 @@ def main():
     stored_projects: list[dict[str, str]] | None = read_data("projects.json")
     if not stored_projects:
         raise NoData
-    projects: list[str] = [x["name"] for x in stored_projects]
-
-    stored_tags: list[dict[str, str]] | None = read_data("tags.json")
-    if not stored_tags:
-        raise NoData
-    tags: list[str] = [x["name"] for x in stored_tags]
-
-    user_data = UserData()
+    project_names: list[str] = [x["name"] for x in stored_projects]
 
     parser = argparse.ArgumentParser(
         description="Control Toggl Track timers from the command line"
     )
+    parser.set_defaults(stored_projects=stored_projects)
     parser.add_argument(
         "-r",
         "--running",
@@ -326,10 +292,10 @@ def main():
     # START
     parser_start = subparsers.add_parser("start", help="Start a timer")
     parser_start.add_argument(
-        "project", help="the name of the project to start", choices=projects
+        "project", help="the name of the project to start", choices=project_names
     )
     parser_start.set_defaults(
-        func=start, user_data=user_data, projects=projects, tags=tags
+        func=start, project_names=project_names, stored_projects=stored_projects
     )
     # SYNC
     parser_sync = subparsers.add_parser("sync", help="Syncs user data with Toggl")
@@ -339,7 +305,7 @@ def main():
     if args.running:
         show_running_timer(args)
     elif args.list:
-        for project in projects:
+        for project in project_names:
             print(project)
     elif args.subcommands is None:
         parser.print_help()
