@@ -201,6 +201,9 @@ def timer(args: argparse.Namespace):
 
 def stop(args: argparse.Namespace):
     running_timer = get_running_timer()
+    if not running_timer:
+        print("No timer running")
+        return
     time_entry_id = running_timer["id"]
     workspace_id = running_timer["workspace_id"]
     project_id = running_timer["project_id"]
