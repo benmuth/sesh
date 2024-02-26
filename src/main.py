@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 from datetime import datetime, timezone
+from json.decoder import JSONDecodeError
 
 # from . import core
 import requests
@@ -14,6 +15,8 @@ import json
 class NoData(Exception):
     pass
 
+
+data_dir = Path.home() / ".cache" / "sesh" / "data"
 
 # ------------------------------------
 # API
@@ -163,29 +166,33 @@ def sync_projects_with_toggl():
     project_properties = ["name", "color", "id"]
     projects = [{k: d[k] for k in project_properties} for d in sorted_project_list]
     print("PROJECT DATA RECEIVED FROM TOGGL")
-    print(json.dumps(projects, indent=2))
+    # print(json.dumps(projects, indent=2))
 
-    with open(Path.home() / ".cache" / "sesh" / "data" / "projects.json", "wt") as f:
+    with open(data_dir / "projects.json", "wt") as f:
         f.write(json.dumps(projects))
+
+    print("data stored at ")
 
 
 # TODO: separate stored data by user
-def read_data(
-    data_file: str, data_dir: Path = Path.home() / "data"
-) -> list[dict[str, str]] | None:
+def read_data(data_file: str, data_dir: Path = data_dir) -> list[dict[str, str]] | None:
     """Reads the given data file if it exists and returns it as a dictionary"""
+    create_file_if_not_exists(data_dir / data_file)
+
     valid_data_files = ("projects.json", "tags.json")
     if data_file in valid_data_files:
         with open(data_dir / data_file, "rt") as f:
-            data: list[dict[str, str]] = json.JSONDecoder().decode(f.read())
-            return data
+            try:
+                data: list[dict[str, str]] = json.JSONDecoder().decode(f.read())
+                return data
+            except JSONDecodeError:
+                sync_projects_with_toggl()
+                read_data(data_file=data_file)
+
     else:
         print(f"given data file {data_file} not found")
         return None
 
-
-# data_dir = "/home/ben/code/python/sesh/data/"
-data_dir = Path.home() / ".cache" / "sesh" / "data"
 
 # ------------------------------------
 # CLI
@@ -258,6 +265,22 @@ def show_running_timer(args: argparse.Namespace):
                 return
     else:
         print("No timer running")
+
+
+def create_file_if_not_exists(path: Path):
+    # Split the path into head (directories) and tail (file)
+    dirs, _ = os.path.split(path)
+
+    # Create directories if they don't exist
+    if dirs and not os.path.exists(dirs):
+        os.makedirs(dirs)
+
+    # Attempt to create the file
+    try:
+        f = open(path, "x")
+        f.close()
+    except FileExistsError:
+        pass
 
 
 def main():
