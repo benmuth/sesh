@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import requests
 import os
 from requests.auth import HTTPBasicAuth
+from pathlib import Path
 
 import json
 
@@ -164,18 +165,18 @@ def sync_projects_with_toggl():
     print("PROJECT DATA RECEIVED FROM TOGGL")
     print(json.dumps(projects, indent=2))
 
-    with open("data/projects.json", "wt") as f:
+    with open(Path.home() / ".cache" / "sesh" / "data" / "projects.json", "wt") as f:
         f.write(json.dumps(projects))
 
 
 # TODO: separate stored data by user
 def read_data(
-    data_file: str, data_dir: str = "/home/ben/code/python/sesh/data/"
+    data_file: str, data_dir: Path = Path.home() / "data"
 ) -> list[dict[str, str]] | None:
     """Reads the given data file if it exists and returns it as a dictionary"""
     valid_data_files = ("projects.json", "tags.json")
     if data_file in valid_data_files:
-        with open(os.path.join(data_dir + data_file), "rt") as f:
+        with open(data_dir / data_file, "rt") as f:
             data: list[dict[str, str]] = json.JSONDecoder().decode(f.read())
             return data
     else:
@@ -183,7 +184,8 @@ def read_data(
         return None
 
 
-data_dir = "/home/ben/code/python/sesh/data/"
+# data_dir = "/home/ben/code/python/sesh/data/"
+data_dir = Path.home() / ".cache" / "sesh" / "data"
 
 # ------------------------------------
 # CLI
