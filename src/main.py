@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime, timezone
 from json.decoder import JSONDecodeError
+from typing import Dict, List, Tuple
 
 # from . import core
 import requests
@@ -10,6 +11,11 @@ from requests.auth import HTTPBasicAuth
 from pathlib import Path
 
 import json
+
+# from base64 import b64encode
+from datetime import timedelta
+from io import StringIO
+import csv
 
 
 class NoData(Exception):
@@ -116,6 +122,43 @@ def start_timer(project_name: str, project_id: int, start_time: str):
         #     print(str(c))
 
 
+def get_report(start_date: str, end_date: str):
+    payload = {
+        # "billable": "boolean",
+        "calculate": "time",
+        # "client_ids": ["integer"],
+        # "description": "string",
+        "date_format": "MM/DD/YYYY",
+        "end_date": end_date,
+        "group_by_task": False,
+        # "group_ids": ["integer"],
+        # "grouping": "string",
+        # "max_duration_seconds": "integer",
+        # "min_duration_seconds": "integer",
+        # "postedFields": ["string"],
+        # "project_ids": ["integer"], TODO: get these
+        # "rounding": "integer",
+        # "rounding_minutes": "integer",
+        # "startTime": "string",
+        "start_date": start_date,
+        # "tag_ids": ["integer"],
+        # "task_ids": ["integer"],
+        # "time_entry_ids": ["integer"],
+        # "user_ids": ["integer"],
+    }
+    data = requests.post(
+        f"https://api.track.toggl.com/reports/api/v3/workspace/{workspace_id}/weekly/time_entries.csv",
+        json=payload,
+        headers={
+            "content-type": "application/json",
+            # "Authorization": "Basic %s"
+            # % b64encode(b"<email>:<password>").decode("ascii"),
+        },
+        auth=HTTPBasicAuth(api_token, "api_token"),
+    )
+    return data
+
+
 class Unauthorized(Exception):
     pass
 
@@ -144,6 +187,84 @@ def print_elapsed_duration(start_time: str):
     print(f"{hours:02}:{minutes:02}:{seconds:02}")
 
 
+def last_period_dates(period: str) -> Tuple[str, str]:
+    if period == "week":
+        # today = datetime.now()
+        today = datetime.today()
+        last_monday = today - timedelta(days=today.weekday() + 7)
+        last_sunday = last_monday + timedelta(days=6)
+        start_of_previous_week = last_monday.strftime("%Y-%m-%d")
+        end_of_previous_week = last_sunday.strftime("%Y-%m-%d")
+        return (
+            start_of_previous_week,
+            end_of_previous_week,
+        )
+    # NOTE: API for this isn't working?
+    # TODO: see if you still get "something went terribly wrong" error from Toggl
+    elif period == "month":
+        today = datetime.today()
+        first_day_of_this_month = today.replace(day=1)
+        last_day_of_previous_month = first_day_of_this_month - timedelta(days=1)
+        first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
+        return (
+            first_day_of_previous_month.strftime("%Y-%m-%d"),
+            last_day_of_previous_month.strftime("%Y-%m-%d"),
+        )
+    else:
+        raise ValueError("Invalid period for report given")
+
+
+def parse_project_times_from_csv(csv_content):
+    result = []
+    s = StringIO(csv_content)
+    reader = csv.reader(s)
+    next(reader)
+    for row in reader:
+        if row:
+            result.append({row[1]: row[-1]})
+    return result
+
+
+def sum_durations(durations):
+    total_duration = timedelta()
+    for duration in durations:
+        hours, minutes, seconds = map(int, duration.split(":"))
+        total_duration += timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+    total_seconds = int(total_duration.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+
+# def sort_dicts(dicts: List[dict], *groups: List[str]):
+#     sorted_lists = [[] for _ in groups]
+
+#     for d in dicts:
+#         for index, string_list in enumerate(groups):
+#             if any(key in d for key in string_list):
+#                 sorted_lists[index].append(d)
+#                 break
+
+#     return sorted_lists
+
+
+def group_projects(dicts: List[Dict], groups: Dict[str, List]):
+    result = {}
+
+    for d in dicts:
+        for label, group in groups.items():
+            if any(key in d for key in group):
+                try:
+                    result[label].append(d)
+                except KeyError:
+                    result[label] = [d]
+                break
+
+    return result
+
+
 # ------------------------------------
 # DATA
 # ------------------------------------
@@ -151,6 +272,22 @@ def print_elapsed_duration(start_time: str):
 # TODO: hook up to SQLite
 
 # TODO: create a class that holds all user data (including a dict mapping project names to IDs)
+
+
+def create_file_if_not_exists(path: Path):
+    # Split the path into head (directories) and tail (file)
+    dirs, _ = os.path.split(path)
+
+    # Create directories if they don't exist
+    if dirs and not os.path.exists(dirs):
+        os.makedirs(dirs)
+
+    # Attempt to create the file
+    try:
+        f = open(path, "x")
+        f.close()
+    except FileExistsError:
+        pass
 
 
 def sync_projects_with_toggl():
@@ -267,20 +404,33 @@ def show_running_timer(args: argparse.Namespace):
         print("No timer running")
 
 
-def create_file_if_not_exists(path: Path):
-    # Split the path into head (directories) and tail (file)
-    dirs, _ = os.path.split(path)
+def report(args: argparse.Namespace):
+    start_date, end_date = last_period_dates(args.period)
+    print(f"report from {start_date} to {end_date}:")
+    data = get_report(start_date, end_date)
 
-    # Create directories if they don't exist
-    if dirs and not os.path.exists(dirs):
-        os.makedirs(dirs)
+    csv = data.content.decode("utf8")
+    project_times = parse_project_times_from_csv(csv)
 
-    # Attempt to create the file
-    try:
-        f = open(path, "x")
-        f.close()
-    except FileExistsError:
-        pass
+    # total = sum_durations([list(project.values())[0] for project in times])
+    grouped_projects = group_projects(project_times, args.project_groups)
+
+    # print(total)
+    # print(result)
+    # print(sorted_dicts)
+
+    def print_dictionary(sorted_dict):
+        for key, dict_list in sorted_dict.items():
+            total_time = sum_durations([list(d.values())[0] for d in dict_list])
+            print(f"### {key}: {total_time}")
+            sorted_list = sorted(
+                dict_list, key=lambda x: list(x.values()), reverse=True
+            )
+            for i, d in enumerate(sorted_list, 1):
+                for sub_key, sub_value in d.items():
+                    print(f"{i}. {sub_key} {sub_value}")
+
+    print_dictionary(grouped_projects)
 
 
 def main():
@@ -328,6 +478,39 @@ def main():
     # SYNC
     parser_sync = subparsers.add_parser("sync", help="Syncs user data with Toggl")
     parser_sync.set_defaults(func=sync)
+
+    # REPORT
+    parser_report = subparsers.add_parser(
+        "report", help="See your report for last week or month"
+    )
+    parser_report.add_argument(
+        "period", help="the period for the report", choices=["week", "month"]
+    )
+    # TODO: make this configurable instead of hard coded
+    project_groups = {
+        "work": [
+            "Programming",
+            "Reading/Watching Programming",
+            "ProductScope",
+            "Puzzles and algorithms",
+            "ArchiveBox",
+            "Blogging/Writing",
+            "bert email project",
+            "Linux admin",
+            "exercise",
+            "Programming study",
+            "Jobs",
+            "RC",
+            "MIT OCW",
+            "Spanish",
+            "Writing",
+            "math",
+        ],
+        "unproductive": ["browsing"],
+        "other": ["loft", "Drawing", "Malayalam", "tools", "meta", "Finance"],
+    }
+
+    parser_report.set_defaults(func=report, project_groups=project_groups)
 
     args = parser.parse_args()
     if args.running:
